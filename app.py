@@ -71,6 +71,22 @@ for k, v in {
     if k not in st.session_state:
         st.session_state[k] = v
 
+def money_fmt(value):
+    """작은 차이도 0.00억원으로 사라지지 않도록 규모에 맞춰 표시"""
+    av = abs(value)
+    if av >= 100_000_000:
+        return f"{value/100_000_000:+,.2f}억원"
+    if av >= 10_000:
+        return f"{value/10_000:+,.2f}만원"
+    return f"{value:+,.0f}원"
+
+def judgment(value):
+    if value > 0:
+        return "불리"
+    if value < 0:
+        return "유리"
+    return "차이 없음"
+
 tabs = st.tabs([
     "① 공개자료",
     "② 재료원가 차이분석",
@@ -122,6 +138,7 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("재료원가: 가격차이와 수량차이")
     st.caption("아래 값은 사용자가 직접 입력합니다. 기아 실제 데이터가 아닙니다.")
+    st.info("입력 단위를 반드시 맞춰 주세요. 예: 단가를 원/kg으로 입력하면 투입량도 kg 기준으로 입력합니다. 작은 테스트 숫자를 넣어도 계산되며, 결과는 원·만원·억원 중 규모에 맞는 단위로 자동 표시됩니다.")
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -153,20 +170,23 @@ with tabs[1]:
     st.markdown("#### 계산 결과")
     m1,m2,m3,m4 = st.columns(4)
     m1.metric("표준허용수량", f"{sq_allowed:,.1f}")
-    m2.metric("가격차이", f"{price_var/100_000_000:,.2f}억원")
-    m3.metric("수량차이", f"{qty_var/100_000_000:,.2f}억원")
-    m4.metric("총 재료원가 차이", f"{total_var/100_000_000:,.2f}억원")
+    m2.metric("가격차이", money_fmt(price_var))
+    m3.metric("수량차이", money_fmt(qty_var))
+    m4.metric("총 재료원가 차이", money_fmt(total_var))
 
     if mat_output == 0 or sp == 0 or ap == 0 or sq_per == 0 or aq_total == 0:
         st.warning("분석할 실제 값을 직접 입력하면 결과가 계산됩니다. 초기값 0은 기아의 실제 수치가 아닙니다.")
     else:
         rows = pd.DataFrame({
             "구분":["가격차이","수량차이"],
-            "금액(억원)":[price_var/1e8, qty_var/1e8],
-            "판정":["불리" if price_var > 0 else "유리" if price_var < 0 else "차이 없음",
-                   "불리" if qty_var > 0 else "유리" if qty_var < 0 else "차이 없음"]
+            "금액":[money_fmt(price_var), money_fmt(qty_var)],
+            "판정":[judgment(price_var), judgment(qty_var)]
         })
-        st.dataframe(rows.style.format({"금액(억원)":"{:+,.2f}"}), hide_index=True, use_container_width=True)
+        st.dataframe(rows, hide_index=True, use_container_width=True)
+        st.caption(
+            f"계산 확인 | 가격차이 = ({ap:,.2f} - {sp:,.2f}) × {aq_total:,.2f} = {price_var:,.0f}원 "
+            f"/ 수량차이 = ({aq_total:,.2f} - {sq_allowed:,.2f}) × {sp:,.2f} = {qty_var:,.0f}원"
+        )
 
         if price_var > 0:
             st.write("• 가격차이가 불리합니다 → 구매단가·계약조건·원재료 가격 변동 등을 확인합니다.")
@@ -209,9 +229,9 @@ with tabs[2]:
     st.markdown("#### 계산 결과")
     l1,l2,l3,l4 = st.columns(4)
     l1.metric("표준허용시간", f"{sh_allowed:,.1f}시간")
-    l2.metric("임률차이", f"{rate_var/100_000_000:,.2f}억원")
-    l3.metric("능률차이", f"{eff_var/100_000_000:,.2f}억원")
-    l4.metric("총 노무원가 차이", f"{labor_total_var/100_000_000:,.2f}억원")
+    l2.metric("임률차이", money_fmt(rate_var))
+    l3.metric("능률차이", money_fmt(eff_var))
+    l4.metric("총 노무원가 차이", money_fmt(labor_total_var))
 
     if lab_output == 0 or sr == 0 or ar == 0 or sh_per == 0 or ah_total == 0:
         st.warning("분석할 실제 값을 직접 입력하면 결과가 계산됩니다.")
@@ -227,18 +247,20 @@ with tabs[3]:
     st.subheader("재료·노무 차이를 한 번에 확인")
     diag = pd.DataFrame({
         "차이요인":["재료 가격차이","재료 수량차이","노무 임률차이","노무 능률차이"],
-        "금액(억원)":[price_var/1e8, qty_var/1e8, rate_var/1e8, eff_var/1e8]
+        "금액(원)":[price_var, qty_var, rate_var, eff_var]
     })
-    fig3 = px.bar(diag, x="차이요인", y="금액(억원)", text_auto=".2f",
+    fig3 = px.bar(diag, x="차이요인", y="금액(원)", text_auto=".3s",
                   title="사용자 입력값 기준 원가차이")
     st.plotly_chart(fig3, use_container_width=True)
-    st.dataframe(diag.style.format({"금액(억원)":"{:+,.2f}"}), hide_index=True, use_container_width=True)
+    diag_show = diag.copy()
+    diag_show["금액"] = diag_show["금액(원)"].map(money_fmt)
+    st.dataframe(diag_show[["차이요인","금액"]], hide_index=True, use_container_width=True)
 
-    if diag["금액(억원)"].abs().sum() == 0:
+    if diag["금액(원)"].abs().sum() == 0:
         st.info("②·③ 탭에 데이터를 입력하면 여기에서 차이요인을 비교할 수 있습니다.")
     else:
-        worst = diag.loc[diag["금액(억원)"].idxmax()]
-        if worst["금액(억원)"] > 0:
+        worst = diag.loc[diag["금액(원)"].idxmax()]
+        if worst["금액(원)"] > 0:
             st.markdown(f"""
 <div class="box"><b>우선 확인할 항목</b><br>
 현재 입력값에서는 <b>{worst['차이요인']}</b>이 가장 큰 불리한 차이입니다.
@@ -263,9 +285,9 @@ with tabs[4]:
     output_for_unit = mat_output if mat_output > 0 and mat_output == lab_output else 0
 
     s1,s2,s3 = st.columns(3)
-    s1.metric("재료원가 총차이", f"{total_var/1e8:,.2f}억원")
-    s2.metric("노무원가 총차이", f"{labor_total_var/1e8:,.2f}억원")
-    s3.metric("합계", f"{combined/1e8:,.2f}억원")
+    s1.metric("재료원가 총차이", money_fmt(total_var))
+    s2.metric("노무원가 총차이", money_fmt(labor_total_var))
+    s3.metric("합계", money_fmt(combined))
 
     if mat_output > 0 and lab_output > 0 and mat_output != lab_output:
         st.warning("재료와 노무 분석의 실제 생산량이 서로 다릅니다. 차량당 합계 계산을 위해 두 탭의 생산량을 동일하게 입력해 주세요.")
